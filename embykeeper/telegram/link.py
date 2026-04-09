@@ -240,11 +240,12 @@ class Link:
                 return bool(result)
             else:
                 try:
-                    await self.post(
-                        f"/auth {service} {self.instance}",
-                        name=f"服务 {service.upper()} 认证",
-                        fail=True,
-                    )
+                    # await self.post(
+                    #     f"/auth {service} {self.instance}",
+                    #     name=f"服务 {service.upper()} 认证",
+                    #     fail=True,
+                    # )
+                    pass
                 except LinkError as e:
                     log_func(f"初始化错误: 使用 {service.upper()} 服务, 但{e}")
                     if "权限不足" in str(e):
