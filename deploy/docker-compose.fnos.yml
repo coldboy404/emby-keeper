@@ -1,0 +1,15 @@
+services:
+  emby-keeper:
+    image: ghcr.io/coldboy404/emby-keeper:main
+    container_name: emby-keeper
+    restart: unless-stopped
+
+    environment:
+      TZ: Asia/Shanghai
+      EK_WEBPASS: "你自己改一个后台密码"
+
+    ports:
+      - "1818:1818"
+
+    volumes:
+      - /vol1/1000/docker/embykeeper/app:/app
