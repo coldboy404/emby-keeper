@@ -7,6 +7,7 @@ import base64
 import re
 import atexit
 import os
+from pathlib import Path
 import pty
 import select
 import fcntl
@@ -359,6 +360,25 @@ def set_static_url_path(app, prefix):
     )
 
 
+def load_startup_config(basedir: Path):
+    env_config = os.environ.get("EK_CONFIG", "")
+    if env_config:
+        return env_config
+
+    config_file = basedir / "config.toml"
+    if not config_file.is_file():
+        return ""
+
+    try:
+        raw = config_file.read_text(encoding="utf-8")
+        tomllib.loads(raw)
+        logger.info(f"Loaded config.toml from basedir: {config_file}")
+        return base64.b64encode(raw.encode()).decode()
+    except Exception as e:
+        logger.warning(f"Failed to load startup config from {config_file}: {e}")
+        return ""
+
+
 @cli.command(context_settings={"ignore_unknown_options": True, "allow_extra_args": True})
 def run(
     ctx: typer.Context,
@@ -373,7 +393,8 @@ def run(
     set_static_url_path(app, app.config["BASE_PREFIX"])
     # 注册蓝图时设置 url_prefix
     app.register_blueprint(bp, url_prefix=app.config["BASE_PREFIX"])
-    app.config["config"] = os.environ.get("EK_CONFIG", "")
+    basedir = Path("/app")
+    app.config["config"] = load_startup_config(basedir)
     app.config["mongodb"] = os.environ.get("EK_MONGODB", "")
     if app.config["mongodb"]:
         ek_config.set(Config())
