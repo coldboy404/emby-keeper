@@ -60,7 +60,7 @@ default_keywords = {
         "你有号吗",
     ),
     "too_many_tries_fail": ("已尝试", "过多"),
-    "checked": ("只能", "已经", "过了", "签过", "明日再来", "重复签到"),
+    "checked": ("只能", "已经", "过了", "签过", "明日再来", "重复签到", "已签到", "今日已签到"),
     "fail": ("失败", "错误", "超时"),
     "success": ("成功", "通过", "完成", "获得"),
 }
@@ -284,9 +284,8 @@ class BotCheckin(BaseBotCheckin):
 
         while True:
             if self.additional_auth:
-                for a in self.additional_auth:
-                    if not await Link(self.client).auth(a, log_func=self.log.info):
-                        return self.ctx.finish(RunStatus.IGNORE, "需要额外认证")
+                auth_names = ", ".join(a.upper() for a in self.additional_auth)
+                self.log.info(f"Auth Bot 不可用, 已跳过签到站点附加认证: {auth_names}.")
 
             if not self.init_first:
                 if not await self.init():
@@ -534,7 +533,7 @@ class BotCheckin(BaseBotCheckin):
                 is_gif = getattr(data, "name", "").endswith(".gif")
                 ocr_text = await ocr.run(data, gif=is_gif)
                 if not ocr_text:
-                    self.log.info(f"签到失败: 接收到空验证码, 正在重试.")
+                    self.log.info("签到失败: 接收到空验证码, OCR 原始输出为空, 正在重试.")
                     await self.retry()
                     return
 
@@ -543,16 +542,23 @@ class BotCheckin(BaseBotCheckin):
             if captcha:
                 self.log.debug(f"[gray50]接收验证码: {captcha}.[/]")
                 if self.bot_captcha_len and len(captcha) not in to_iterable(self.bot_captcha_len):
-                    self.log.info(f"签到失败: 验证码低于设定长度, 正在重试.")
+                    self.log.info(
+                        f"签到失败: OCR 结果长度不符合预期, 原始输出: {ocr_text!r}, "
+                        f"清洗后: {captcha!r}, 期望长度: {list(to_iterable(self.bot_captcha_len))}, 正在重试."
+                    )
                     await self.retry()
                 else:
                     await asyncio.sleep(random.uniform(2, 4))
                     await self.on_captcha(message, captcha)
             else:
-                self.log.info(f"签到失败: 接收到空验证码, 正在重试.")
+                self.log.info(f"签到失败: OCR 原始输出 {ocr_text!r}, 清洗后为空, 正在重试.")
                 await self.retry()
         except asyncio.TimeoutError:
-            self.log.info("签到失败: 验证码识别失败, 正在重试.")
+            self.log.info("签到失败: 验证码识别超时, 正在重试.")
+            await self.retry()
+            return
+        except Exception as e:
+            self.log.warning(f"签到失败: 验证码识别异常: {e}, 正在重试.")
             await self.retry()
             return
 
@@ -651,10 +657,14 @@ class BotCheckin(BaseBotCheckin):
                 "不要说明这是一个指令, 不要说明需要发送文本消息, 仅仅按上述形式输出.\n"
                 "如果这是一个状态, 请输出 [IS_STATUS], 禁止输出其他内容."
             )
-            for _ in range(3):
+            for attempt in range(1, 4):
                 answer, by = await Link(self.client).gpt(prompt)
+                if not answer:
+                    self.log.warning(f"智能回答第 {attempt}/3 次未返回可用内容.")
+                    continue
+
+                self.log.debug(f"智能回答 ({by}): {answer}")
                 if answer:
-                    self.log.debug(f"智能回答 ({by}): {answer}")
                     if "[NO_RESP]" in answer:
                         if unexpected:
                             self.log.info(f"智能回答认为无需进行操作, 为了避免风险签到器将停止.")
@@ -678,23 +688,27 @@ class BotCheckin(BaseBotCheckin):
                         answer_content = re.search(r"\[CLICK\]\^(.+?)\^", answer)
                         if not answer_content:
                             if unexpected:
-                                self.log.info(f"智能回答失败, 为了避免风险签到器将停止.")
+                                self.log.info(f"智能回答失败: 返回了无法解析的点击格式: {answer}. 为了避免风险签到器将停止.")
                                 await self.fail()
                                 return False
                             else:
-                                self.log.warning(f"智能回答失败.")
+                                self.log.warning(f"智能回答失败: 返回了无法解析的点击格式: {answer}.")
                                 return False
                         answer_content = answer_content.group(1)
                         b, s = process.extractOne(answer_content, buttons, scorer=fuzz.partial_ratio)
                         if s < 70:
-                            self.log.info(f"找不到对应回答的按钮, 正在重试.")
+                            self.log.info(
+                                f'找不到对应回答的按钮, 模型返回: "{answer_content}", 可选按钮: {buttons}, '
+                                f'最佳匹配: {(b, s)}, 正在重试.'
+                            )
                             await asyncio.sleep(3)
                             continue
                         else:
                             try:
                                 await message.click(b)
-                            except (TimeoutError, MessageIdInvalid):
-                                pass
+                            except (TimeoutError, MessageIdInvalid) as e:
+                                self.log.warning(f'智能回答尝试点击按钮 "{b}" 失败: {e}.')
+                                continue
                             if unexpected:
                                 self.log.warning(f'智能回答点击了按钮 "{b}", 为了避免风险签到器将停止.')
                                 await self.fail()
@@ -706,11 +720,11 @@ class BotCheckin(BaseBotCheckin):
                         answer_content = re.search(r"\[SEND\]\^(.+?)\^", answer)
                         if not answer_content:
                             if unexpected:
-                                self.log.warning(f"智能回答失败, 为了避免风险签到器将停止.")
+                                self.log.warning(f"智能回答失败: 返回了无法解析的发送格式: {answer}. 为了避免风险签到器将停止.")
                                 await self.fail()
                                 return False
                             else:
-                                self.log.warning(f"智能回答失败.")
+                                self.log.warning(f"智能回答失败: 返回了无法解析的发送格式: {answer}.")
                                 return False
                         answer_content = answer_content.group(1)
                         await message.reply(answer_content)
@@ -721,13 +735,16 @@ class BotCheckin(BaseBotCheckin):
                         else:
                             self.log.info(f'智能回答回复了 "{answer_content}".')
                             return True
+                    else:
+                        self.log.warning(f"智能回答返回了无法识别的格式: {answer}.")
+                        await asyncio.sleep(1)
             else:
                 if unexpected:
-                    self.log.warning(f"智能回答失败, 为了避免风险签到器将停止.")
+                    self.log.warning(f"智能回答失败: 已连续 3 次未得到可执行结果, 为了避免风险签到器将停止.")
                     await self.fail()
                     return False
                 else:
-                    self.log.warning(f"智能回答失败.")
+                    self.log.warning(f"智能回答失败: 已连续 3 次未得到可执行结果.")
                     return False
 
     async def retry(self):
