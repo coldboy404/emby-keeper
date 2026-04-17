@@ -58,6 +58,11 @@ class TemplateAICheckin(TemplateACheckin):
     _zhipu_api_key = None
     _zhipu_model_id = None
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._captcha_options_event = asyncio.Event()
+        self._captcha_options_message: Optional[Message] = None
+
     async def init(self):
         if not await super().init():
             return False
@@ -90,6 +95,11 @@ class TemplateAICheckin(TemplateACheckin):
 
     async def message_handler(self, client, message: Message):
         text = message.caption or message.text
+        if self.is_captcha_options_message(message, text):
+            self.remember_captcha_options_message(message)
+            self.log.debug("已缓存验证码按钮消息, 等待图片验证码到达.")
+            return
+
         if (
             (not message.photo)
             and text
@@ -126,9 +136,10 @@ class TemplateAICheckin(TemplateACheckin):
         await BotCheckin.message_handler(self, client, message)
 
     async def on_photo(self, message: Message):
-        options = self.get_keys(message)
+        option_message = message if self.get_keys(message) else await self.wait_for_captcha_options_message()
+        options = self.get_keys(option_message) if option_message else []
         if not options:
-            self.log.warning("签到失败: AI 模板要求验证码图片消息包含可点击按钮.")
+            self.log.warning("签到失败: 未找到与验证码图片对应的可点击按钮消息.")
             return await self.fail()
 
         try:
@@ -153,7 +164,7 @@ class TemplateAICheckin(TemplateACheckin):
         self.log.info(f'图像模型已选择按钮: "{button}".')
         await asyncio.sleep(random.uniform(0.5, 1.5))
         try:
-            result = await message.click(button)
+            result = await option_message.click(button)
         except (TimeoutError, MessageIdInvalid):
             self.log.warning(f'点击图像模型选择的按钮 "{button}" 后无响应或消息已失效.')
             return
@@ -167,6 +178,60 @@ class TemplateAICheckin(TemplateACheckin):
         elif isinstance(reply_markup, ReplyKeyboardMarkup):
             return [k.text for r in reply_markup.keyboard for k in r]
         return []
+
+    def is_captcha_options_message(self, message: Message, text: Optional[str]) -> bool:
+        if message.photo or not text or not message.reply_markup:
+            return False
+
+        options = self.get_keys(message)
+        if not options:
+            return False
+
+        if self.templ_panel_keywords and any(keyword in text for keyword in to_iterable(self.templ_panel_keywords)):
+            return False
+
+        if any(any(btn in option for btn in to_iterable(self.bot_checkin_button)) for option in options):
+            return False
+
+        prompt_keywords = (
+            "验证码",
+            "验证",
+            "点击图片",
+            "显示的数字",
+            "请选择图片",
+            "请选择正确",
+            "第 1 步",
+            "第 2 步",
+        )
+        if any(keyword in text for keyword in prompt_keywords):
+            return True
+
+        numeric_buttons = [option for option in options if re.fullmatch(r"\d+", option)]
+        if len(numeric_buttons) >= max(3, len(options) // 2):
+            return True
+
+        return False
+
+    def remember_captcha_options_message(self, message: Message):
+        self._captcha_options_message = message
+        self._captcha_options_event.set()
+
+    def pop_captcha_options_message(self) -> Optional[Message]:
+        message = self._captcha_options_message
+        self._captcha_options_message = None
+        self._captcha_options_event.clear()
+        return message
+
+    async def wait_for_captcha_options_message(self, timeout: float = 8) -> Optional[Message]:
+        message = self.pop_captcha_options_message()
+        if message:
+            return message
+
+        try:
+            await asyncio.wait_for(self._captcha_options_event.wait(), timeout)
+        except asyncio.TimeoutError:
+            return None
+        return self.pop_captcha_options_message()
 
     async def solve_with_llm(self, image, options: List[str]) -> Optional[str]:
         client = self.get_zhipu_client()
