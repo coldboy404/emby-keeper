@@ -104,6 +104,8 @@ class NotifierConfig(ConfigModel):
     once: Optional[bool] = False
     method: Optional[str] = "telegram"
     apprise_uri: Optional[str] = None
+    bot_token: Optional[str] = None
+    chat_id: Optional[Union[int, str]] = None
 
 
 class SiteConfig(ConfigModel):

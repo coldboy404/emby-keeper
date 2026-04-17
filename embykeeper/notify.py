@@ -105,7 +105,36 @@ async def start_notifier():
             change_handle_notifier = config.on_change("notifier", _handle_config_change)
         return stream_log, stream_msg
 
-    # Default to telegram
+    if notifier.method == "telegram":
+        if notifier.bot_token and notifier.chat_id:
+            from .telegram.log import TelegramStream
+
+            logger.info(f'计划任务的关键消息将通过自定义 Telegram Bot 发送至 chat_id="{notifier.chat_id}".')
+            stream_log = TelegramStream(
+                instant=config.notifier.immediately,
+                bot_token=notifier.bot_token,
+                chat_id=notifier.chat_id,
+            )
+            handler_log_id = logger.add(
+                stream_log,
+                format=_formatter,
+                filter=_filter_log,
+            )
+            stream_msg = TelegramStream(
+                instant=True,
+                bot_token=notifier.bot_token,
+                chat_id=notifier.chat_id,
+            )
+            handler_msg_id = logger.add(
+                stream_msg,
+                format=_formatter,
+                filter=_filter_msg,
+            )
+            if not change_handle_notifier:
+                change_handle_notifier = config.on_change("notifier", _handle_config_change)
+            return stream_log, stream_msg
+
+    # Default to telegram account + Embykeeper Bot
     accounts = config.telegram.account
     account = None
     if isinstance(notifier.account, int):
@@ -125,7 +154,7 @@ async def start_notifier():
 
         async with ClientsSession([account]) as clients:
             async for a, tg in clients:
-                logger.info(f'计划任务的关键消息将通过 Embykeeper Bot 发送至 "{account.phone}" 账号.')
+                logger.info(f'计划任务的关键消息将通过 Telegram 账号 "{account.phone}" 转发发送.')
                 break
             else:
                 logger.error(f'无法连接到 "{account.phone}" 账号, 无法发送日志推送.')
@@ -170,7 +199,10 @@ async def debug_notifier():
         if config.notifier.method == "apprise":
             logger.info("已尝试发送, 请至 Apprise 配置的接收端查看.")
         elif config.notifier.method == "telegram":
-            logger.info("已尝试发送, 请至 @embykeeper_bot 查看.")
+            if config.notifier.bot_token and config.notifier.chat_id:
+                logger.info(f'已尝试发送, 请至自定义 Telegram 机器人 chat_id="{config.notifier.chat_id}" 查看.')
+            else:
+                logger.info("已尝试发送, 请至 @embykeeper_bot 查看.")
         await asyncio.gather(*[stream.join() for stream in streams if stream])
     else:
         logger.error("您当前没有配置有效的日志通知 (未启用日志通知或未配置账号), 请检查配置文件.")

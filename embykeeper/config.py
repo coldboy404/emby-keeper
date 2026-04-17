@@ -475,6 +475,10 @@ class ConfigManager(ProxyBase):
         c["once"] = False
         c.add(comment("推送方式, 可选: telegram (默认), apprise"))
         c["method"] = "telegram"
+        c.add(comment('自定义 Telegram Bot Token, 配置后将不再使用 @embykeeper_bot'))
+        c["bot_token"] = ""
+        c.add(comment('自定义 Telegram 目标 chat_id, 配置后将不再使用 @embykeeper_bot'))
+        c["chat_id"] = ""
         c.add(comment('Apprise 推送地址, 仅当 method = "apprise" 时有效'))
         c["apprise_uri"] = ""
         doc["notifier"] = c

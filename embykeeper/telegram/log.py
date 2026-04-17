@@ -1,6 +1,7 @@
 import asyncio
 import io
 
+import httpx
 from rich.text import Text
 from loguru import logger
 
@@ -16,10 +17,12 @@ logger = logger.bind(scheme="telenotifier", nonotify=True)
 class TelegramStream(io.TextIOWrapper):
     """消息推送处理器类"""
 
-    def __init__(self, account: TelegramAccount, instant=False):
+    def __init__(self, account: TelegramAccount = None, instant=False, bot_token: str = None, chat_id=None):
         super().__init__(io.BytesIO(), line_buffering=True)
         self.account = account
         self.instant = instant
+        self.bot_token = bot_token
+        self.chat_id = str(chat_id) if chat_id is not None else None
 
         self.queue = asyncio.Queue()
         self.watch = asyncio.create_task(self.watchdog())
@@ -41,6 +44,22 @@ class TelegramStream(io.TextIOWrapper):
                 self.queue.task_done()
 
     async def send(self, message):
+        if self.bot_token and self.chat_id:
+            method = "sendMessage"
+            url = f"https://api.telegram.org/bot{self.bot_token}/{method}"
+            payload = {
+                "chat_id": self.chat_id,
+                "text": message,
+                "disable_web_page_preview": True,
+            }
+            async with httpx.AsyncClient(timeout=20) as client:
+                r = await client.post(url, json=payload)
+                if r.is_success:
+                    data = r.json()
+                    return bool(data.get("ok"))
+                logger.warning(f"推送消息到 Telegram Bot API 失败: HTTP {r.status_code} {r.text[:300]}")
+                return False
+
         async with ClientsSession([self.account]) as clients:
             async for _, tg in clients:
                 if self.instant:
