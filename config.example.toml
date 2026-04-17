@@ -220,6 +220,10 @@ immediately = false
 once = false
 # 推送方式, 可选: telegram (默认), apprise
 method = "telegram"
+# 自定义 Telegram Bot Token, 配置后将不再使用 @embykeeper_bot
+bot_token = ""
+# 自定义 Telegram 目标 chat_id, 配置后将不再使用 @embykeeper_bot
+chat_id = ""
 # Apprise 推送地址, 仅当 method = "apprise" 时有效
 apprise_uri = ""
 
