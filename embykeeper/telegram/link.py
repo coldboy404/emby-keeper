@@ -8,6 +8,7 @@ from typing import Callable, Coroutine, List, Optional, Tuple, Union
 import uuid
 from io import BytesIO
 
+import openai
 import tomli
 from loguru import logger
 from pyrogram import filters
@@ -34,8 +35,9 @@ class Link:
 
     bot = "embykeeper_auth_bot"
     post_count = 0
-    _zhipu_client = None
-    _zhipu_api_key = None
+    _openai_client = None
+    _openai_api_key = None
+    _openai_base_url = None
 
     def __init__(self, client: Client):
         self.client = client
@@ -346,11 +348,13 @@ class Link:
             return await self._local_gpt(
                 prompt,
                 api_key=api_key,
-                model_id=ai_config.get("model_id") or "glm-4.1v-thinking-flashx",
+                base_url=ai_config.get("base_url"),
+                model_id=ai_config.get("model") or ai_config.get("model_id") or "gpt-4.1-mini",
                 timeout=ai_config.get("llm_timeout", 40),
+                provider=ai_config.get("provider") or "openai-compatible",
             )
 
-        self.log.warning("请求智能回答失败: 未设置本地智谱 AI 配置 `[checkiner.ai].api_key`.")
+        self.log.warning("请求智能回答失败: 未设置本地 AI 配置 `[checkiner.ai].api_key`.")
         return None, None
 
     def _get_local_ai_config(self):
@@ -360,15 +364,18 @@ class Link:
         return {}
 
     @classmethod
-    def _get_zhipu_client(cls, api_key: str):
-        if cls._zhipu_client and cls._zhipu_api_key == api_key:
-            return cls._zhipu_client
+    def _get_openai_client(cls, api_key: str, base_url: Optional[str] = None):
+        if (
+            cls._openai_client
+            and cls._openai_api_key == api_key
+            and cls._openai_base_url == base_url
+        ):
+            return cls._openai_client
 
-        from zai import ZhipuAiClient
-
-        cls._zhipu_client = ZhipuAiClient(api_key=api_key)
-        cls._zhipu_api_key = api_key
-        return cls._zhipu_client
+        cls._openai_client = openai.OpenAI(api_key=api_key, base_url=base_url)
+        cls._openai_api_key = api_key
+        cls._openai_base_url = base_url
+        return cls._openai_client
 
     @staticmethod
     def _normalize_ai_content(content):
@@ -413,16 +420,15 @@ class Link:
         api_key: str,
         model_id: str,
         timeout: int = 40,
+        base_url: Optional[str] = None,
+        provider: str = "openai-compatible",
     ) -> Tuple[Optional[str], Optional[str]]:
-        self.log.info("正在进行服务请求: 请求智能回答 (智谱 AI)")
+        self.log.info(f"正在进行服务请求: 请求智能回答 ({provider})")
 
         try:
-            client = self._get_zhipu_client(api_key)
-        except ImportError:
-            self.log.warning("请求智能回答失败: 未安装 zai-sdk, 请先安装 `zai-sdk==0.2.2`.")
-            return None, None
+            client = self._get_openai_client(api_key, base_url=base_url)
         except Exception as e:
-            self.log.warning(f"请求智能回答失败: 初始化智谱客户端失败: {e}.")
+            self.log.warning(f"请求智能回答失败: 初始化 AI 客户端失败: {e}.")
             return None, None
 
         def run_request():
@@ -443,36 +449,35 @@ class Link:
 
         answer = self._normalize_ai_content(content)
         if not answer:
-            self.log.warning("请求智能回答失败: 智谱 AI 返回空响应.")
+            self.log.warning("请求智能回答失败: AI 返回空响应.")
             return None, None
         answer = self._strip_think_content(answer)
         if not answer:
             self.log.warning(
-                f"请求智能回答失败: 智谱 AI 仅返回思维链或空内容, 原始响应预览: {self._preview_ai_content(content)}."
+                f"请求智能回答失败: AI 仅返回思维链或空内容, 原始响应预览: {self._preview_ai_content(content)}."
             )
             return None, None
-        self.log.info("服务请求完成: 请求智能回答 (智谱 AI)")
-        return answer, f"zhipu:{model_id}"
+        self.log.info(f"服务请求完成: 请求智能回答 ({provider})")
+        return answer, f"{provider}:{model_id}"
 
     async def visual(self, photo, options: List[str], question=None) -> Tuple[Optional[str], Optional[str]]:
         """向机器人发送视觉问题解答请求."""
         ai_config = self._get_local_ai_config()
         api_key = ai_config.get("api_key")
         if not api_key:
-            self.log.warning("请求视觉问题解答失败: 未设置本地智谱 AI 配置 `[checkiner.ai].api_key`.")
+            self.log.warning("请求视觉问题解答失败: 未设置本地 AI 配置 `[checkiner.ai].api_key`.")
             return None, None
 
-        model_id = ai_config.get("model_id") or "glm-4.1v-thinking-flashx"
+        model_id = ai_config.get("model") or ai_config.get("model_id") or "gpt-4.1-mini"
         timeout = ai_config.get("llm_timeout", 40)
+        provider = ai_config.get("provider") or "openai-compatible"
+        base_url = ai_config.get("base_url")
 
-        self.log.info("正在进行服务请求: 请求视觉问题解答 (智谱 AI)")
+        self.log.info(f"正在进行服务请求: 请求视觉问题解答 ({provider})")
         try:
-            client = self._get_zhipu_client(api_key)
-        except ImportError:
-            self.log.warning("请求视觉问题解答失败: 未安装 zai-sdk, 请先安装 `zai-sdk==0.2.2`.")
-            return None, None
+            client = self._get_openai_client(api_key, base_url=base_url)
         except Exception as e:
-            self.log.warning(f"请求视觉问题解答失败: 初始化智谱客户端失败: {e}.")
+            self.log.warning(f"请求视觉问题解答失败: 初始化 AI 客户端失败: {e}.")
             return None, None
 
         try:
@@ -521,13 +526,13 @@ class Link:
         answer = self._extract_answer_tag(self._strip_think_content(self._normalize_ai_content(content)))
         if not answer:
             self.log.warning(
-                f"请求视觉问题解答失败: 智谱 AI 未返回可用答案, 原始响应预览: {self._preview_ai_content(content)}."
+                f"请求视觉问题解答失败: AI 未返回可用答案, 原始响应预览: {self._preview_ai_content(content)}."
             )
             return None, None
 
         if answer in options:
-            self.log.info("服务请求完成: 请求视觉问题解答 (智谱 AI)")
-            return answer, f"zhipu:{model_id}"
+            self.log.info(f"服务请求完成: 请求视觉问题解答 ({provider})")
+            return answer, f"{provider}:{model_id}"
 
         matched = process.extractOne(answer, options)
         if not matched or matched[1] < 70:
@@ -537,8 +542,8 @@ class Link:
             )
             return None, None
 
-        self.log.info("服务请求完成: 请求视觉问题解答 (智谱 AI)")
-        return matched[0], f"zhipu:{model_id}"
+        self.log.info(f"服务请求完成: 请求视觉问题解答 ({provider})")
+        return matched[0], f"{provider}:{model_id}"
 
     async def ocr(self, photo) -> Optional[str]:
         """向机器人发送 OCR 解答请求."""

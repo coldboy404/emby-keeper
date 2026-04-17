@@ -6,6 +6,7 @@ import re
 from pathlib import Path
 from typing import List, Optional, Union
 
+import openai
 from loguru import logger
 from pydantic import BaseModel, ValidationError
 from pyrogram.errors import MessageIdInvalid
@@ -37,8 +38,11 @@ class TemplateAICheckinConfig(BaseModel):
     bot_use_captcha: Optional[bool] = None  # 是否将图片视为验证码
     bot_checkin_button: Union[str, List[str], None] = None  # 进入签到流程的按钮文本
     templ_panel_keywords: Union[str, List[str], None] = None  # 面板关键词
-    api_key: Optional[str] = None  # 智谱 API Key
-    model_id: Optional[str] = None  # 智谱图像模型 ID
+    provider: Optional[str] = None  # 自定义 AI 提供商名称, 仅用于日志展示
+    base_url: Optional[str] = None  # OpenAI 兼容接口 Base URL
+    api_key: Optional[str] = None  # OpenAI 兼容接口 API Key
+    model: Optional[str] = None  # OpenAI 兼容接口模型名
+    model_id: Optional[str] = None  # 兼容旧配置, 等同于 model
     llm_prompt: Optional[str] = None  # 发送给图像模型的额外提示词
     llm_timeout: Optional[int] = None  # 图像模型超时时间
     llm_button_match_threshold: Optional[int] = None  # LLM 结果与按钮的最低匹配分数
@@ -46,7 +50,7 @@ class TemplateAICheckinConfig(BaseModel):
 
 
 class TemplateAICheckin(TemplateACheckin):
-    model_id = "glm-4.1v-thinking-flashx"
+    model_id = "gpt-4.1-mini"
     llm_timeout = 60
     llm_button_match_threshold = 70
     llm_prompt = (
@@ -54,9 +58,9 @@ class TemplateAICheckin(TemplateACheckin):
         "从候选按钮中选择唯一正确答案。"
     )
 
-    _zhipu_client = None
-    _zhipu_api_key = None
-    _zhipu_model_id = None
+    _openai_client = None
+    _openai_api_key = None
+    _openai_base_url = None
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -74,9 +78,17 @@ class TemplateAICheckin(TemplateACheckin):
             return False
 
         global_ai_config = self.get_global_ai_config()
+        self.provider = self.ai_config.provider or global_ai_config.get("provider") or "openai-compatible"
+        self.base_url = self.ai_config.base_url or global_ai_config.get("base_url")
         self.api_key = self.ai_config.api_key or global_ai_config.get("api_key")
-        self.model_id = self.ai_config.model_id or global_ai_config.get("model_id") or self.model_id
-        self.llm_timeout = self.ai_config.llm_timeout or self.llm_timeout
+        self.model_id = (
+            self.ai_config.model
+            or self.ai_config.model_id
+            or global_ai_config.get("model")
+            or global_ai_config.get("model_id")
+            or self.model_id
+        )
+        self.llm_timeout = self.ai_config.llm_timeout or global_ai_config.get("llm_timeout") or self.llm_timeout
         self.llm_button_match_threshold = (
             self.ai_config.llm_button_match_threshold or self.llm_button_match_threshold
         )
@@ -234,7 +246,7 @@ class TemplateAICheckin(TemplateACheckin):
         return self.pop_captcha_options_message()
 
     async def solve_with_llm(self, image, options: List[str]) -> Optional[str]:
-        client = self.get_zhipu_client()
+        client = self.get_openai_client()
         if not client:
             return None
 
@@ -259,9 +271,6 @@ class TemplateAICheckin(TemplateACheckin):
 
         try:
             content = await asyncio.wait_for(asyncio.to_thread(run_request), timeout=self.llm_timeout)
-        except ImportError:
-            self.log.warning("签到失败: 未安装 zai-sdk, 请先安装 `zai-sdk==0.2.2`.")
-            return None
         except asyncio.TimeoutError:
             self.log.warning("签到失败: 图像模型请求超时.")
             return None
@@ -280,31 +289,25 @@ class TemplateAICheckin(TemplateACheckin):
             self.log.debug(f"图像模型返回答案: {answer}")
         return answer
 
-    def get_zhipu_client(self):
+    def get_openai_client(self):
         api_key = self.api_key
         if not api_key:
             self.log.warning(
-                "签到失败: 未设置智谱 API Key, 请在 `config.toml` 中配置 `[checkiner.ai].api_key`."
+                "签到失败: 未设置 AI API Key, 请在 `config.toml` 中配置 `[checkiner.ai].api_key`."
             )
             return None
 
         if (
-            self.__class__._zhipu_client
-            and self.__class__._zhipu_api_key == api_key
-            and self.__class__._zhipu_model_id == self.model_id
+            self.__class__._openai_client
+            and self.__class__._openai_api_key == api_key
+            and self.__class__._openai_base_url == self.base_url
         ):
-            return self.__class__._zhipu_client
+            return self.__class__._openai_client
 
-        try:
-            from zai import ZhipuAiClient
-        except ImportError:
-            self.log.warning("签到失败: 未安装 zai-sdk, 请先安装 `zai-sdk==0.2.2`.")
-            return None
-
-        self.__class__._zhipu_client = ZhipuAiClient(api_key=api_key)
-        self.__class__._zhipu_api_key = api_key
-        self.__class__._zhipu_model_id = self.model_id
-        return self.__class__._zhipu_client
+        self.__class__._openai_client = openai.OpenAI(api_key=api_key, base_url=self.base_url)
+        self.__class__._openai_api_key = api_key
+        self.__class__._openai_base_url = self.base_url
+        return self.__class__._openai_client
 
     def build_prompt(self, options: List[str]) -> str:
         option_lines = "\n".join(f"- {option}" for option in options)

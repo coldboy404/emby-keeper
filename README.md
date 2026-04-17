@@ -5,19 +5,19 @@
 - 跳过各签到站点 `additional_auth` 检查
 - 避免因原作者 auth bot 失效导致签到流程直接中断
 
-2. 将原有远端 `GPT` 能力替换为本地智谱 AI
+2. 将原有远端 `GPT` 能力替换为本地 OpenAI 兼容 AI
 - `Link.gpt()` 不再走原作者的 `/gpt` 服务
-- 改为读取 `config.toml` 中 `[checkiner.ai]` 的 `api_key` 和 `model_id`
-- 用智谱模型处理异常文本、状态判断、按钮决策等智能回答逻辑
+- 改为读取 `config.toml` 中 `[checkiner.ai]` 的 `base_url` / `api_key` / `model`
+- 用 OpenAI 兼容模型处理异常文本、状态判断、按钮决策等智能回答逻辑
 
-3. 将原有远端 `visual` 能力替换为本地智谱图像理解
+3. 将原有远端 `visual` 能力替换为本地 OpenAI 兼容视觉理解
 - `Link.visual()` 不再走原作者的 `/visual` 服务
-- 改为将图片发送给智谱 VLM 做图像理解
+- 改为将图片发送给 OpenAI 兼容 VLM 做图像理解
 - 用于终点站等需要图片理解的签到场景
 
 4. 新增 AI 图片验证码签到模板 `_templ_ai.py`
 - 参考 `_templ_a.py` 的面板签到逻辑
-- 在图片验证码场景下调用智谱图像模型识别答案
+- 在图片验证码场景下调用 OpenAI 兼容视觉模型识别答案
 - 根据模型返回结果匹配按钮并点击，不再依赖本地 OCR
 
 5. 新增 `mooncake_ai` 站点
