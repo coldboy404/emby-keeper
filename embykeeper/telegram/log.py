@@ -1,5 +1,6 @@
 import asyncio
 import io
+import re
 
 import httpx
 from rich.text import Text
@@ -16,6 +17,30 @@ logger = logger.bind(scheme="telenotifier", nonotify=True)
 
 class TelegramStream(io.TextIOWrapper):
     """消息推送处理器类"""
+
+    def _prettify_message(self, message: str) -> str:
+        message = message.strip()
+
+        replacements = [
+            (r"^WARNING#每日签到 \((.*?)\): Auth Bot 不可用, 已跳过 CHECKINER 总认证并直接启动签到站点\.$", "⚠️ 每日签到：总认证不可用，已直接开始各站点签到。"),
+            (r"^WARNING#每日签到 \((.*?)\): \((.*?)\) 接收到异常返回信息: (.*?), 正在尝试智能回答\.$", r"⚠️ \2：收到异常返回，正在尝试智能处理。\n└─ \3"),
+            (r'^WARNING#每日签到 \((.*?)\): \((.*?)\) 初始化错误: "", 签到器将停止\.$', r"❌ \2：初始化失败，已跳过该站点。"),
+            (r'^WARNING#每日签到 \((.*?)\): \((.*?)\) 初始化错误: "(.*?)", 签到器将停止\.$', r"❌ \2：初始化失败，已跳过该站点。\n└─ \3"),
+            (r'^WARNING#每日签到 \((.*?)\): \((@?.*?)\) 初始化错误: "", 签到器将停止\.$', r"❌ \2：初始化失败，已跳过该站点。"),
+            (r'^WARNING#每日签到 \((.*?)\): \((@?.*?)\) 初始化错误: "(.*?)", 签到器将停止\.$', r"❌ \2：初始化失败，已跳过该站点。\n└─ \3"),
+            (r"^ERROR#每日签到 \((.*?)\): 签到失败 \((.*?)\): (.*?)$", r"❌ 每日签到失败\n• 统计：\2\n• 失败站点：\3"),
+            (r"^ERROR#每日签到 \((.*?)\): 签到部分失败 \((.*?)\): (.*?)$", r"⚠️ 每日签到部分失败\n• 统计：\2\n• 失败站点：\3"),
+            (r"^INFO#每日签到 \((.*?)\): 签到成功 \((.*?)\)\.$", r"✅ 每日签到完成\n• 统计：\2"),
+        ]
+
+        for pattern, replacement in replacements:
+            new_message = re.sub(pattern, replacement, message)
+            if new_message != message:
+                return new_message
+
+        message = re.sub(r"^(DEBUG|INFO|WARNING|ERROR)#", "", message)
+        message = re.sub(r"^每日签到 \((.*?)\): ", "", message)
+        return message.strip()
 
     def __init__(self, account: TelegramAccount = None, instant=False, bot_token: str = None, chat_id=None):
         super().__init__(io.BytesIO(), line_buffering=True)
@@ -73,6 +98,7 @@ class TelegramStream(io.TextIOWrapper):
         message = Text.from_markup(message).plain
         if message.endswith("\n"):
             message = message[:-1]
+        message = self._prettify_message(message)
         if message:
             self.queue.put_nowait(message)
 
