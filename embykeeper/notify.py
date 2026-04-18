@@ -57,12 +57,27 @@ async def start_notifier():
     global stream_log, stream_msg, handler_log_id, handler_msg_id, change_handle_telegram, change_handle_notifier
 
     def _filter_log(record):
-        notify = record.get("extra", {}).get("log", None)
-        nonotify = record.get("extra", {}).get("nonotify", None)
-        if (not nonotify) and (notify or record["level"].no == logging.ERROR):
-            return True
-        else:
+        extra = record.get("extra", {})
+        notify = extra.get("log", None)
+        nonotify = extra.get("nonotify", None)
+        scheme = extra.get("scheme", None)
+        level_no = record["level"].no
+        runtime_warning_schemes = {
+            "telechecker",
+            "embywatcher",
+            "subsonic",
+            "telemonitor",
+            "telemessager",
+            "teleregistrar",
+            "telelink",
+        }
+        if nonotify:
             return False
+        if notify or level_no >= logging.ERROR:
+            return True
+        if level_no >= logging.WARNING and scheme in runtime_warning_schemes:
+            return True
+        return False
 
     def _filter_msg(record):
         notify = record.get("extra", {}).get("msg", None)

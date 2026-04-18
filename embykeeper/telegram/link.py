@@ -20,7 +20,7 @@ from pyrogram.errors import FloodWait
 from thefuzz import process
 
 from embykeeper.config import config
-from embykeeper.utils import async_partial, truncate_str
+from embykeeper.utils import async_partial, to_thread_compat, truncate_str
 
 from .lock import super_ad_shown, super_ad_shown_lock, authed_services, authed_services_lock
 from .pyrogram import Client
@@ -439,7 +439,7 @@ class Link:
             return response.choices[0].message.content
 
         try:
-            content = await asyncio.wait_for(asyncio.to_thread(run_request), timeout=timeout)
+            content = await asyncio.wait_for(to_thread_compat(run_request), timeout=timeout)
         except asyncio.TimeoutError:
             self.log.warning("请求智能回答超时.")
             return None, None
@@ -515,7 +515,7 @@ class Link:
             return response.choices[0].message.content
 
         try:
-            content = await asyncio.wait_for(asyncio.to_thread(run_request), timeout=timeout)
+            content = await asyncio.wait_for(to_thread_compat(run_request), timeout=timeout)
         except asyncio.TimeoutError:
             self.log.warning("请求视觉问题解答超时.")
             return None, None

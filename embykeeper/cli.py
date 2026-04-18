@@ -531,6 +531,12 @@ async def main(
             return
 
         streams = []
+        should_start_notifier = config.noexit or (not once) or (instant and not debug_cron and config.notifier and config.notifier.enabled and config.notifier.once)
+        if should_start_notifier:
+            from .notify import start_notifier
+
+            streams = await start_notifier() or []
+
         if instant and not debug_cron:
             if checkin_man:
                 pool.add(checkin_man.run_all(instant=True), "站点签到")
@@ -540,10 +546,6 @@ async def main(
                 pool.add(subsonic_man.run_all(instant=True), "Subsonic 保活")
             await pool.wait()
             logger.debug("启动时立刻执行签到和保活: 已完成.")
-        if (not once) or config.noexit:
-            from .notify import start_notifier
-
-            streams = await start_notifier()
         if not once:
             if checkin_man:
                 pool.add(checkin_man.schedule_all(), "站点签到")

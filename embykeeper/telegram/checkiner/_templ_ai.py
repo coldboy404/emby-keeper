@@ -15,7 +15,7 @@ from pyrogram.types import InlineKeyboardMarkup, Message, ReplyKeyboardMarkup
 from thefuzz import process
 
 from embykeeper.config import config
-from embykeeper.utils import to_iterable
+from embykeeper.utils import to_iterable, to_thread_compat
 
 from . import BotCheckin
 from ._templ_a import TemplateACheckin
@@ -270,7 +270,7 @@ class TemplateAICheckin(TemplateACheckin):
             return response.choices[0].message.content
 
         try:
-            content = await asyncio.wait_for(asyncio.to_thread(run_request), timeout=self.llm_timeout)
+            content = await asyncio.wait_for(to_thread_compat(run_request), timeout=self.llm_timeout)
         except asyncio.TimeoutError:
             self.log.warning("签到失败: 图像模型请求超时.")
             return None

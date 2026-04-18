@@ -234,6 +234,16 @@ def async_partial(f, *args1, **kw1):
     return func
 
 
+async def to_thread_compat(func, /, *args, **kwargs):
+    """兼容 Python 3.8 的 asyncio.to_thread 替代实现."""
+    to_thread = getattr(asyncio, "to_thread", None)
+    if to_thread:
+        return await to_thread(func, *args, **kwargs)
+
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(None, lambda: func(*args, **kwargs))
+
+
 async def idle():
     """异步无限等待函数."""
     await asyncio.Future()
