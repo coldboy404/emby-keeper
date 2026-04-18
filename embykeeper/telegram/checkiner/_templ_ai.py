@@ -6,6 +6,8 @@ import re
 from pathlib import Path
 from typing import List, Optional, Union
 
+import httpx
+
 import openai
 from loguru import logger
 from pydantic import BaseModel, ValidationError
@@ -50,6 +52,7 @@ class TemplateAICheckinConfig(BaseModel):
 
 
 class TemplateAICheckin(TemplateACheckin):
+    _availability_cache = {}
     model_id = "gpt-4.1-mini"
     llm_timeout = 60
     llm_button_match_threshold = 70
@@ -288,6 +291,71 @@ class TemplateAICheckin(TemplateACheckin):
         if answer:
             self.log.debug(f"图像模型返回答案: {answer}")
         return answer
+
+    @classmethod
+    def get_effective_ai_config(cls, site_config=None):
+        ai_config = TemplateAICheckinConfig.model_validate(site_config or {}) if site_config else None
+        global_ai_config = getattr(config.checkiner, "ai", None) or {}
+        if not isinstance(global_ai_config, dict):
+            global_ai_config = {}
+        provider = (getattr(ai_config, "provider", None) if ai_config else None) or global_ai_config.get("provider") or "openai-compatible"
+        base_url = (getattr(ai_config, "base_url", None) if ai_config else None) or global_ai_config.get("base_url")
+        api_key = (getattr(ai_config, "api_key", None) if ai_config else None) or global_ai_config.get("api_key")
+        model_id = (
+            (getattr(ai_config, "model", None) if ai_config else None)
+            or (getattr(ai_config, "model_id", None) if ai_config else None)
+            or global_ai_config.get("model")
+            or global_ai_config.get("model_id")
+            or cls.model_id
+        )
+        llm_timeout = (getattr(ai_config, "llm_timeout", None) if ai_config else None) or global_ai_config.get("llm_timeout") or cls.llm_timeout
+        return {
+            "provider": provider,
+            "base_url": base_url,
+            "api_key": api_key,
+            "model_id": model_id,
+            "llm_timeout": llm_timeout,
+        }
+
+    @classmethod
+    async def check_ai_available(cls, site_config=None, force_refresh: bool = False):
+        effective = cls.get_effective_ai_config(site_config)
+        provider = effective["provider"]
+        base_url = effective["base_url"]
+        api_key = effective["api_key"]
+        model_id = effective["model_id"]
+        timeout = min(int(effective["llm_timeout"] or cls.llm_timeout), 15)
+        cache_key = (provider, base_url or "", api_key or "", model_id)
+
+        if not force_refresh and cache_key in cls._availability_cache:
+            return cls._availability_cache[cache_key]
+
+        if not api_key:
+            result = (False, "未设置 AI API Key")
+            cls._availability_cache[cache_key] = result
+            return result
+
+        if not base_url:
+            result = (False, "未设置 AI Base URL")
+            cls._availability_cache[cache_key] = result
+            return result
+
+        url = base_url.rstrip("/") + "/models"
+        headers = {"Authorization": f"Bearer {api_key}"}
+
+        try:
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                response = await client.get(url, headers=headers)
+                if response.is_success:
+                    result = (True, None)
+                else:
+                    detail = response.text[:160].replace("\n", " ").strip()
+                    result = (False, f"HTTP {response.status_code}{(': ' + detail) if detail else ''}")
+        except Exception as e:
+            result = (False, str(e))
+
+        cls._availability_cache[cache_key] = result
+        return result
 
     def get_openai_client(self):
         api_key = self.api_key

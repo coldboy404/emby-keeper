@@ -14,6 +14,7 @@ from embykeeper.runinfo import RunContext, RunStatus
 from embykeeper.utils import AsyncTaskPool, show_exception
 
 from .checkiner import BaseBotCheckin
+from .checkiner._templ_ai import TemplateAICheckin
 from .dynamic import extract, get_cls, get_names
 from .link import Link
 from .session import ClientsSession
@@ -258,18 +259,27 @@ class CheckinerManager:
             async for _, client in clients:
                 cls = get_cls("checkiner", names=[site_name])[0]
                 config_to_use = account.checkiner_config or config.checkiner
+                site_config = config_to_use.get_site_config(site_name)
 
                 c: BaseBotCheckin = cls(
                     client,
                     context=ctx,
                     retries=config_to_use.retries,
                     timeout=config_to_use.timeout,
-                    config=config_to_use.get_site_config(site_name),
+                    config=site_config,
                 )
 
                 log = logger.bind(username=client.me.full_name, name=c.name)
 
-                result = await c._start()
+                if issubclass(cls, TemplateAICheckin):
+                    ai_ok, ai_reason = await TemplateAICheckin.check_ai_available(site_config=site_config)
+                    if not ai_ok:
+                        log.warning(f"跳过 AI 签到站点: AI 连通性检查失败 ({ai_reason}).")
+                        result = c.ctx.finish(RunStatus.IGNORE, f"AI 连通性检查失败: {ai_reason}")
+                    else:
+                        result = await c._start()
+                else:
+                    result = await c._start()
                 if result.status == RunStatus.SUCCESS:
                     log.info("重新签到成功.")
                 elif result.status == RunStatus.NONEED:
@@ -308,6 +318,7 @@ class CheckinerManager:
         config_to_use = account.checkiner_config or config.checkiner
         sem = asyncio.Semaphore(config_to_use.concurrency)
         checkiners = []
+        ai_site_configs = []
         for cls in clses:
             if hasattr(cls, "templ_name"):
                 site_name = cls.templ_name
@@ -319,21 +330,49 @@ class CheckinerManager:
                 log.debug(f"跳过站点 {site_name}, 该站点有独立的 time_range 配置")
                 continue
 
+            site_config = config_to_use.get_site_config(site_name)
             site_ctx = RunContext.prepare(f"{site_name} 站点签到", parent_ids=ctx.id)
-            checkiners.append(
-                cls(
-                    client,
-                    context=site_ctx,
-                    retries=config_to_use.retries,
-                    timeout=config_to_use.timeout,
-                    config=config_to_use.get_site_config(site_name),
-                )
+            checkiner = cls(
+                client,
+                context=site_ctx,
+                retries=config_to_use.retries,
+                timeout=config_to_use.timeout,
+                config=site_config,
             )
+            checkiners.append(checkiner)
+            ai_site_configs.append(site_config if issubclass(cls, TemplateAICheckin) else None)
+
+        ai_availability = {}
+        for site_config in ai_site_configs:
+            if site_config is not None:
+                effective = TemplateAICheckin.get_effective_ai_config(site_config)
+                cache_key = (
+                    effective["provider"],
+                    effective["base_url"] or "",
+                    effective["api_key"] or "",
+                    effective["model_id"],
+                )
+                if cache_key not in ai_availability:
+                    ai_availability[cache_key] = await TemplateAICheckin.check_ai_available(site_config=site_config)
 
         tasks = []
+        results = []
         names = []
         for c in checkiners:
             names.append(c.name)
+            if isinstance(c, TemplateAICheckin):
+                effective = TemplateAICheckin.get_effective_ai_config(c.config)
+                cache_key = (
+                    effective["provider"],
+                    effective["base_url"] or "",
+                    effective["api_key"] or "",
+                    effective["model_id"],
+                )
+                ai_ok, ai_reason = ai_availability.get(cache_key, (False, "未知错误"))
+                if not ai_ok:
+                    c.log.warning(f"跳过 AI 签到: AI 连通性检查失败 ({ai_reason}).")
+                    results.append((c, c.ctx.finish(RunStatus.IGNORE, f"AI 连通性检查失败: {ai_reason}")))
+                    continue
             wait = 0 if instant else random.uniform(0, config_to_use.random_start)
             task = self._task_main(c, sem, wait)
             tasks.append(task)
@@ -341,7 +380,8 @@ class CheckinerManager:
         if names:
             log.info(f'已启用签到器: {", ".join(names)}')
 
-        results: List[Tuple[BaseBotCheckin, RunContext]] = await asyncio.gather(*tasks)
+        if tasks:
+            results.extend(await asyncio.gather(*tasks))
 
         failed = []
         ignored = []
