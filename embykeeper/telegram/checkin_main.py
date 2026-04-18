@@ -313,8 +313,6 @@ class CheckinerManager:
                 log.warning("没有任何有效签到站点, 签到将跳过.")
             return
 
-        log.warning("Auth Bot 不可用, 已跳过 CHECKINER 总认证并直接启动签到站点.")
-
         config_to_use = account.checkiner_config or config.checkiner
         sem = asyncio.Semaphore(config_to_use.concurrency)
         checkiners = []
