@@ -414,11 +414,26 @@ class CheckinerManager:
         if ignored:
             spec += f", {len(ignored)}跳过"
 
+        details = []
         if failed:
-            msg = "签到部分失败" if successful else "签到失败"
-            log.bind(log=True).error(f"{msg} ({spec}): {', '.join(failed)}")
+            details.append(f"失败站点：{', '.join(failed)}")
+        if checked:
+            details.append(f"已签到跳过：{', '.join(checked)}")
+        if ignored:
+            details.append(f"其他跳过：{', '.join(ignored)}")
+        detail_text = "\n• ".join(details)
+
+        if failed:
+            msg = "每日签到部分失败" if successful else "每日签到失败"
+            summary = f"{msg}\n• 统计：{spec}"
+            if detail_text:
+                summary += f"\n• {detail_text}"
+            log.bind(log=True).error(summary)
         else:
-            log.bind(log=True).info(f"签到成功 ({spec}).")
+            summary = f"每日签到汇总\n• 统计：{spec}"
+            if detail_text:
+                summary += f"\n• {detail_text}"
+            log.bind(log=True).info(summary)
 
     def new_ctx(self):
         now = datetime.now()
