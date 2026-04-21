@@ -235,36 +235,18 @@ class Link:
                 message.continue_propagation()
 
     async def auth(self, service: str, log_func=None):
-        """向机器人发送授权请求."""
+        """服务认证检查.
+
+        当前分支已禁用远端 Auth Bot 鉴权，直接在本地放行并写入缓存，
+        避免每次启动都请求 @embykeeper_auth_bot。
+        """
         async with authed_services_lock:
             user_auth_cache = authed_services.get(self.client.me.id, {}).get(service, None)
             if user_auth_cache is not None:
                 return user_auth_cache
 
-            # No cache, perform auth
-            if not log_func:
-                result = await self.post(
-                    f"/auth {service} {self.instance}", name=f"服务 {service.upper()} 认证"
-                )
-                authed_services.setdefault(self.client.me.id, {})[service] = bool(result)
-                return bool(result)
-            else:
-                try:
-                    # await self.post(
-                    #     f"/auth {service} {self.instance}",
-                    #     name=f"服务 {service.upper()} 认证",
-                    #     fail=True,
-                    # )
-                    pass
-                except LinkError as e:
-                    log_func(f"初始化错误: 使用 {service.upper()} 服务, 但{e}")
-                    if "权限不足" in str(e):
-                        await self._show_super_ad()
-                    authed_services.setdefault(self.client.me.id, {})[service] = False
-                    return False
-                else:
-                    authed_services.setdefault(self.client.me.id, {})[service] = True
-                    return True
+            authed_services.setdefault(self.client.me.id, {})[service] = True
+            return True
 
     async def _show_super_ad(self):
         async with super_ad_shown_lock:
