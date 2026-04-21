@@ -404,35 +404,37 @@ class CheckinerManager:
             else:
                 failed.append(c.name)
 
-        spec = f"共{len(successful) + len(checked) + len(failed) + len(ignored)}个"
+        total = len(successful) + len(checked) + len(failed) + len(ignored)
+        stats_parts = [f"共 {total} 个"]
         if successful:
-            spec += f", {len(successful)}成功"
+            stats_parts.append(f"成功 {len(successful)} 个")
         if checked:
-            spec += f", {len(checked)}已签到而跳过"
+            stats_parts.append(f"已签到跳过 {len(checked)} 个")
         if failed:
-            spec += f", {len(failed)}失败"
+            stats_parts.append(f"失败 {len(failed)} 个")
         if ignored:
-            spec += f", {len(ignored)}跳过"
+            stats_parts.append(f"其他跳过 {len(ignored)} 个")
+        stats_line = "，".join(stats_parts)
 
-        details = []
-        if failed:
-            details.append(f"失败站点：{', '.join(failed)}")
-        if checked:
-            details.append(f"已签到跳过：{', '.join(checked)}")
-        if ignored:
-            details.append(f"其他跳过：{', '.join(ignored)}")
-        detail_text = "\n• ".join(details)
+        lines = ["📋 每日签到结果：", "", f"• 统计：{stats_line}"]
 
         if failed:
-            msg = "每日签到部分失败" if successful else "每日签到失败"
-            summary = f"{msg}\n• 统计：{spec}"
-            if detail_text:
-                summary += f"\n• {detail_text}"
+            lines.append("")
+            lines.append("❌失败站点：")
+            lines.extend([f"  - {name}" for name in failed])
+
+        if checked:
+            lines.append("")
+            lines.append(f"✅️已签到跳过：\n  {', '.join(checked)}")
+
+        if ignored:
+            lines.append("")
+            lines.append(f"⏭️其他跳过：\n  {', '.join(ignored)}")
+
+        summary = "\n".join(lines)
+        if failed:
             log.bind(log=True).error(summary)
         else:
-            summary = f"每日签到汇总\n• 统计：{spec}"
-            if detail_text:
-                summary += f"\n• {detail_text}"
             log.bind(log=True).info(summary)
 
     def new_ctx(self):

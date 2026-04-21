@@ -62,6 +62,7 @@ async def start_notifier():
         nonotify = extra.get("nonotify", None)
         scheme = extra.get("scheme", None)
         level_no = record["level"].no
+        message = record.get("message", "")
         runtime_warning_schemes = {
             "telechecker",
             "embywatcher",
@@ -73,6 +74,16 @@ async def start_notifier():
         }
         if nonotify:
             return False
+
+        # 屏蔽单站点初始化失败的逐条通知，只保留最终汇总
+        if (
+            scheme == "telechecker"
+            and level_no >= logging.WARNING
+            and "初始化错误" in message
+            and "签到器将停止" in message
+        ):
+            return False
+
         if notify or level_no >= logging.ERROR:
             return True
         if level_no >= logging.WARNING and scheme in runtime_warning_schemes:
