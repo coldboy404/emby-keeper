@@ -188,9 +188,9 @@ class TemplateAICheckin(TemplateACheckin):
 
     def get_keys(self, message: Message):
         reply_markup = message.reply_markup
-        if isinstance(reply_markup, InlineKeyboardMarkup):
+        if isinstance(reply_markup, InlineKeyboardMarkup) or hasattr(reply_markup, "inline_keyboard"):
             return [k.text for r in reply_markup.inline_keyboard for k in r]
-        elif isinstance(reply_markup, ReplyKeyboardMarkup):
+        elif isinstance(reply_markup, ReplyKeyboardMarkup) or hasattr(reply_markup, "keyboard"):
             return [k.text for r in reply_markup.keyboard for k in r]
         return []
 
@@ -213,6 +213,7 @@ class TemplateAICheckin(TemplateACheckin):
             "验证",
             "点击图片",
             "显示的数字",
+            "请选择",
             "请选择图片",
             "请选择正确",
             "第 1 步",
