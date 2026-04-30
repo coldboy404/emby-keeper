@@ -1,6 +1,7 @@
 import asyncio
 from types import SimpleNamespace
 
+from embykeeper.runinfo import RunStatus
 from embykeeper.telegram.checkiner.mooncake_ai import MooncakeAICheckin
 
 
@@ -32,9 +33,12 @@ class DummyMarkup:
 def make_checkiner():
     checkiner = MooncakeAICheckin.__new__(MooncakeAICheckin)
     checkiner.log = DummyLog()
+    checkiner.ctx = SimpleNamespace(status=None, status_info=None)
+    checkiner.current_retries = 0
+    checkiner.finished = asyncio.Event()
     checkiner._captcha_options_event = asyncio.Event()
     checkiner._captcha_options_message = None
-    checkiner.llm_button_match_threshold = 70
+    checkiner.llm_button_match_threshold = 95
     checkiner.bot_checkin_button = ["签到"]
     checkiner.templ_panel_keywords = None
     return checkiner
@@ -75,3 +79,33 @@ def test_mooncake_photo_uses_cached_options_message_when_options_arrive_first(mo
 
     assert option_message.clicked == ["7"]
     assert checkiner.result.message == "签到成功"
+
+def test_mooncake_refuses_ambiguous_digit_answers():
+    checkiner = make_checkiner()
+    options = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "返回"]
+
+    assert checkiner.match_button("可能是 3 或 8", options) is None
+
+
+def test_mooncake_refuses_fuzzy_non_digit_answers():
+    checkiner = make_checkiner()
+    options = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "返回"]
+
+    assert checkiner.match_button("返回", options) is None
+
+
+def test_mooncake_retry_stops_without_resending_checkin(monkeypatch):
+    checkiner = make_checkiner()
+    sent = []
+
+    async def fake_send_checkin(*args, **kwargs):
+        sent.append((args, kwargs))
+
+    monkeypatch.setattr(checkiner, "send_checkin", fake_send_checkin)
+
+    asyncio.run(checkiner.retry())
+
+    assert sent == []
+    assert checkiner.finished.is_set()
+    assert checkiner.ctx.status == RunStatus.FAIL
+    assert checkiner.ctx.status_info == "月饼 AI 验证失败, 已停止自动重试"
