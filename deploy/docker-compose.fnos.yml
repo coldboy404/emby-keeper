@@ -2,10 +2,11 @@ services:
   emby-keeper:
     image: ghcr.io/coldboy404/emby-keeper:main
     container_name: emby-keeper
-    restart: unless-stopped
+    restart: always
 
     environment:
       TZ: Asia/Shanghai
+      EK_ENABLE_WEB: "1"
       EK_WEBPASS: "你自己改一个后台密码"
 
     ports:
