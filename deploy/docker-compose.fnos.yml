@@ -6,11 +6,9 @@ services:
 
     environment:
       TZ: Asia/Shanghai
-      EK_ENABLE_WEB: "1"
-      EK_WEBPASS: "你自己改一个后台密码"
-
-    ports:
-      - "1818:1818"
 
     volumes:
       - /vol1/1000/docker/embykeeper/app:/app
+
+    # 如需连接宿主机代理可保留 host 网络；不需要时可删除。
+    network_mode: host

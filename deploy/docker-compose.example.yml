@@ -1,15 +1,16 @@
-# Emby Keeper Docker Compose 完整示例
+# Emby Keeper Docker Compose 完整示例（推荐：不使用 Web 控制台）
 #
 # 使用方法：
 #   1. 把本文件复制为 docker-compose.yml
-#   2. 修改 EK_WEBPASS 和 ./app 挂载目录
-#   3. 在 ./app/config.toml 放入你的配置文件
-#   4. 启动：docker compose up -d
+#   2. 在 ./app/config.toml 放入你的配置文件
+#   3. 首次登录建议先交互运行一次：
+#      docker run -v $(pwd)/app:/app --rm -it --net=host ghcr.io/coldboy404/emby-keeper:main
+#   4. 启动后台服务：docker compose up -d
 #
-# 说明：
-#   - restart: always：宿主机/Docker 重启后自动拉起容器。
-#   - EK_ENABLE_WEB=1：启用 Web 控制台，容器启动后也会自动启动 worker。
-#   - 如果只想后台运行、不需要 Web，把 EK_ENABLE_WEB/EK_WEBPASS/ports 删除即可。
+# 运行逻辑：
+#   - 容器每次启动/重启都会自动执行一次任务（镜像入口默认带 --instant）。
+#   - 容器不重启时，程序继续常驻，并按 config.toml 里的 time_range / interval_days 等配置定时运行。
+#   - 不配置 Web 控制台密码/开关，不启动 Web 控制台，也不需要网页按钮控制任务。
 
 services:
   emby-keeper:
@@ -18,39 +19,29 @@ services:
     restart: always
 
     environment:
-      # 容器时区
       TZ: Asia/Shanghai
 
-      # 启用 Web 控制台；容器启动时会自动运行 embykeeper worker。
-      EK_ENABLE_WEB: "1"
+      # 可选：如需覆盖入口默认参数，也可以使用环境变量。
+      # 镜像入口已经默认等效于 embykeeper --basedir /app --instant。
+      # EK_INSTANT: "1"
 
-      # Web 控制台密码，请务必改成自己的强密码。
-      EK_WEBPASS: "请改成你的后台密码"
-
-      # 可选：如果你用 MongoDB/远程配置，可按需开启。
+      # 可选：如果你用 MongoDB/远程缓存，可按需开启。
       # EK_MONGODB: "mongodb://username:password@host:27017/embykeeper"
 
-      # 可选：Web 控制台反代子路径，例如 /embykeeper。
-      # EK_BASE_PREFIX: ""
-
-    ports:
-      # Web 控制台访问地址：http://宿主机IP:1818
-      - "1818:1818"
+      # 可选：代理。若使用 network_mode: host 且代理在宿主机，可写 127.0.0.1。
+      # HTTP_PROXY: "http://127.0.0.1:7890"
+      # HTTPS_PROXY: "http://127.0.0.1:7890"
+      # ALL_PROXY: "socks5://127.0.0.1:7890"
 
     volumes:
       # 持久化配置、Telegram session、缓存等数据。
       # 普通 Linux/NAS 可用 ./app:/app；fnOS 可改成 /vol1/1000/docker/embykeeper/app:/app
       - ./app:/app
 
-    # 可选：如果 Telegram 或站点访问依赖宿主机代理，可按需添加网络/代理环境变量。
-    # network_mode: host
-    # environment:
-    #   HTTP_PROXY: "http://127.0.0.1:7890"
-    #   HTTPS_PROXY: "http://127.0.0.1:7890"
+    # 可选：用于连接宿主机上的代理；不需要宿主机网络时可删除。
+    network_mode: host
 
-    healthcheck:
-      test: ["CMD-SHELL", "python - <<'PY'\nimport urllib.request\nurllib.request.urlopen('http://127.0.0.1:1818/healthz', timeout=5).read()\nPY"]
-      interval: 1m
-      timeout: 10s
-      retries: 3
-      start_period: 30s
+    # 如果只想启用部分模块，可取消注释 command；这些参数会追加到默认 --instant 后面。
+    # 例如只运行 Telegram 签到：command: ["--checkin"]
+    # 例如只运行 Emby 保活：command: ["--emby"]
+    # command: ["--checkin", "--emby"]
