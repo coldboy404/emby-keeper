@@ -1,0 +1,56 @@
+# Emby Keeper Docker Compose 完整示例
+#
+# 使用方法：
+#   1. 把本文件复制为 docker-compose.yml
+#   2. 修改 EK_WEBPASS 和 ./app 挂载目录
+#   3. 在 ./app/config.toml 放入你的配置文件
+#   4. 启动：docker compose up -d
+#
+# 说明：
+#   - restart: always：宿主机/Docker 重启后自动拉起容器。
+#   - EK_ENABLE_WEB=1：启用 Web 控制台，容器启动后也会自动启动 worker。
+#   - 如果只想后台运行、不需要 Web，把 EK_ENABLE_WEB/EK_WEBPASS/ports 删除即可。
+
+services:
+  emby-keeper:
+    image: ghcr.io/coldboy404/emby-keeper:main
+    container_name: emby-keeper
+    restart: always
+
+    environment:
+      # 容器时区
+      TZ: Asia/Shanghai
+
+      # 启用 Web 控制台；容器启动时会自动运行 embykeeper worker。
+      EK_ENABLE_WEB: "1"
+
+      # Web 控制台密码，请务必改成自己的强密码。
+      EK_WEBPASS: "请改成你的后台密码"
+
+      # 可选：如果你用 MongoDB/远程配置，可按需开启。
+      # EK_MONGODB: "mongodb://username:password@host:27017/embykeeper"
+
+      # 可选：Web 控制台反代子路径，例如 /embykeeper。
+      # EK_BASE_PREFIX: ""
+
+    ports:
+      # Web 控制台访问地址：http://宿主机IP:1818
+      - "1818:1818"
+
+    volumes:
+      # 持久化配置、Telegram session、缓存等数据。
+      # 普通 Linux/NAS 可用 ./app:/app；fnOS 可改成 /vol1/1000/docker/embykeeper/app:/app
+      - ./app:/app
+
+    # 可选：如果 Telegram 或站点访问依赖宿主机代理，可按需添加网络/代理环境变量。
+    # network_mode: host
+    # environment:
+    #   HTTP_PROXY: "http://127.0.0.1:7890"
+    #   HTTPS_PROXY: "http://127.0.0.1:7890"
+
+    healthcheck:
+      test: ["CMD-SHELL", "python - <<'PY'\nimport urllib.request\nurllib.request.urlopen('http://127.0.0.1:1818/healthz', timeout=5).read()\nPY"]
+      interval: 1m
+      timeout: 10s
+      retries: 3
+      start_period: 30s

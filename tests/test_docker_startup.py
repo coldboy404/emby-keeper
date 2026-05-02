@@ -50,3 +50,15 @@ def test_fnos_compose_restarts_after_host_boot_and_enables_web_console():
     content = compose_file.read_text(encoding="utf-8")
     assert "restart: always" in content
     assert 'EK_ENABLE_WEB: "1"' in content
+
+
+def test_complete_compose_example_documents_auto_start_web_deployment():
+    compose_file = Path(__file__).resolve().parents[1] / "deploy" / "docker-compose.example.yml"
+    content = compose_file.read_text(encoding="utf-8")
+    assert "image: ghcr.io/coldboy404/emby-keeper:main" in content
+    assert "restart: always" in content
+    assert 'EK_ENABLE_WEB: "1"' in content
+    assert "EK_WEBPASS:" in content
+    assert '"1818:1818"' in content
+    assert "./app:/app" in content
+    assert "/healthz" in content
