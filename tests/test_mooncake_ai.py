@@ -85,6 +85,45 @@ def test_mooncake_photo_uses_cached_options_message_when_options_arrive_first(mo
     assert option_message.clicked == ["7"]
     assert checkiner.result.message == "签到成功"
 
+
+def test_mooncake_photo_continues_after_first_successful_captcha_round(monkeypatch):
+    checkiner = make_checkiner()
+    first_option_message = DummyMessage(
+        text="请选择",
+        reply_markup=DummyMarkup(["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "返回"]),
+    )
+    second_option_message = DummyMessage(
+        text="请选择",
+        reply_markup=DummyMarkup(["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "返回"]),
+    )
+    first_photo_message = DummyMessage(photo=True)
+    second_photo_message = DummyMessage(photo=True)
+    checkiner.remember_captcha_options_message(first_option_message)
+
+    async def fake_download_media(message, in_memory=True):
+        return b"first-image" if message is first_photo_message else b"second-image"
+
+    async def fake_solve_with_llm(image, options):
+        return "7" if image == b"first-image" else "3"
+
+    async def fake_on_captcha_button_answer(result):
+        checkiner.results.append(result)
+
+    checkiner.results = []
+    checkiner.client = SimpleNamespace(download_media=fake_download_media)
+    monkeypatch.setattr(checkiner, "solve_with_llm", fake_solve_with_llm)
+    monkeypatch.setattr(checkiner, "on_captcha_button_answer", fake_on_captcha_button_answer)
+
+    asyncio.run(checkiner.on_photo(first_photo_message))
+    checkiner.remember_captcha_options_message(second_option_message)
+    asyncio.run(checkiner.on_photo(second_photo_message))
+
+    assert first_option_message.clicked == ["7"]
+    assert second_option_message.clicked == ["3"]
+    assert len(checkiner.results) == 2
+    assert not checkiner.finished.is_set()
+
+
 def test_mooncake_refuses_ambiguous_digit_answers():
     checkiner = make_checkiner()
     options = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "返回"]
