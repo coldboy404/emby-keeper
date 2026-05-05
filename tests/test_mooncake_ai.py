@@ -1,6 +1,8 @@
 import asyncio
 from types import SimpleNamespace
 
+from pyrogram.errors import MessageIdInvalid
+
 from embykeeper.runinfo import RunStatus
 from embykeeper.telegram.checkiner.mooncake_ai import MooncakeAICheckin
 
@@ -11,7 +13,7 @@ class DummyLog:
 
 
 class DummyMessage:
-    def __init__(self, *, text=None, photo=False, reply_markup=None):
+    def __init__(self, *, text=None, photo=False, reply_markup=None, click_exception=None):
         self.text = text
         self.caption = None
         self.photo = photo
@@ -19,9 +21,12 @@ class DummyMessage:
         self.edit_date = None
         self.is_first_response = False
         self.clicked = []
+        self.click_exception = click_exception
 
     async def click(self, button):
         self.clicked.append(button)
+        if self.click_exception:
+            raise self.click_exception
         return SimpleNamespace(message="签到成功")
 
 
@@ -106,6 +111,37 @@ def test_mooncake_retry_stops_without_resending_checkin(monkeypatch):
     asyncio.run(checkiner.retry())
 
     assert sent == []
+    assert checkiner.finished.is_set()
+    assert checkiner.ctx.status == RunStatus.FAIL
+    assert checkiner.ctx.status_info == "月饼 AI 验证失败, 已停止自动重试"
+
+
+def test_mooncake_click_failure_stops_without_waiting_for_global_timeout(monkeypatch):
+    checkiner = make_checkiner()
+    option_message = DummyMessage(
+        text="请选择",
+        reply_markup=DummyMarkup(["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "返回"]),
+        click_exception=MessageIdInvalid,
+    )
+    photo_message = DummyMessage(photo=True)
+    checkiner.remember_captcha_options_message(option_message)
+
+    async def fake_download_media(message, in_memory=True):
+        return b"image"
+
+    async def fake_solve_with_llm(image, options):
+        return "7"
+
+    async def fake_sleep(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr(asyncio, "sleep", fake_sleep)
+    checkiner.client = SimpleNamespace(download_media=fake_download_media)
+    monkeypatch.setattr(checkiner, "solve_with_llm", fake_solve_with_llm)
+
+    asyncio.run(checkiner.on_photo(photo_message))
+
+    assert option_message.clicked == ["7"]
     assert checkiner.finished.is_set()
     assert checkiner.ctx.status == RunStatus.FAIL
     assert checkiner.ctx.status_info == "月饼 AI 验证失败, 已停止自动重试"

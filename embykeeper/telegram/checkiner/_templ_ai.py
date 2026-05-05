@@ -182,7 +182,7 @@ class TemplateAICheckin(TemplateACheckin):
             result = await option_message.click(button)
         except (TimeoutError, MessageIdInvalid):
             self.log.warning(f'点击图像模型选择的按钮 "{button}" 后无响应或消息已失效.')
-            return
+            return await self.retry()
         else:
             await self.on_captcha_button_answer(result)
 
