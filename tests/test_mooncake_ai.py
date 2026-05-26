@@ -184,3 +184,27 @@ def test_mooncake_click_failure_stops_without_waiting_for_global_timeout(monkeyp
     assert checkiner.finished.is_set()
     assert checkiner.ctx.status == RunStatus.FAIL
     assert checkiner.ctx.status_info == "月饼 AI 验证失败, 已停止自动重试"
+
+
+def test_mooncake_rejects_uncertain_single_digit_answer():
+    checkiner = make_checkiner()
+    options = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "返回"]
+
+    assert checkiner.match_button("可能是 7", options) is None
+    assert checkiner.match_button("不确定，像是 7", options) is None
+
+
+def test_mooncake_extract_answer_rejects_prompt_or_button_contamination():
+    checkiner = make_checkiner()
+
+    assert checkiner.extract_answer("[ANSWER]验证码是 7，不是按钮 4[/ANSWER]") is None
+    assert checkiner.extract_answer("[ANSWER]7[/ANSWER]") == "7"
+
+
+def test_mooncake_prompt_tells_model_to_ignore_button_digits():
+    checkiner = make_checkiner()
+    prompt = checkiner.build_prompt(["3", "9", "5", "7", "2", "6", "8", "4", "1", "返回"])
+
+    assert "忽略按钮" in prompt
+    assert "最大" in prompt
+    assert "单个阿拉伯数字" in prompt
