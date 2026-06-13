@@ -96,25 +96,27 @@ def get_cls(type: str, names: List[str] = None) -> List[Type]:
 
     results = []
     for name in names:
-        match = re.match(r"templ_(\w+)<@?(\w+)>", name)
+        match = re.match(r"templ_(\w+)<@?(-?[\w]+)>", name)
         if match:
+            template_name = match.group(1).lower()
+            template_target = match.group(2)
             try:
-                module = import_module(f"{__telechecker__}.{sub}._templ_{match.group(1).lower()}")
+                module = import_module(f"{__telechecker__}.{sub}._templ_{template_name}")
                 func = getattr(module, "use", None)
                 if not func:
-                    logger.warning(f'您配置的 "{type}" 不支持模板 "{match.group(1).upper()}".')
+                    logger.warning(f'您配置的 "{type}" 不支持模板 "{template_name.upper()}".')
                     continue
                 if type == "checkiner":
                     results.append(
-                        func(bot_username=match.group(2), name=f"@{match.group(2)}", templ_name=name)
+                        func(bot_username=template_target, name=f"@{template_target}", templ_name=name)
                     )
                 elif type == "monitor":
-                    results.append(func(name=f"{match.group(2)}", templ_name=name))
+                    results.append(func(name=f"{template_target}", templ_name=name))
                 elif type == "messager":
-                    results.append(func(name=f"@{match.group(2)}", templ_name=name))
+                    results.append(func(name=f"@{template_target}", templ_name=name))
                 elif type == "registrar":
                     results.append(
-                        func(bot_username=match.group(2), name=f"@{match.group(2)}", templ_name=name)
+                        func(bot_username=template_target, name=f"@{template_target}", templ_name=name)
                     )
             except ImportError:
                 all_names = get_names(type, allow_ignore=True)

@@ -170,6 +170,25 @@ concurrency = 1
 # 案例 (启用默认站点, 额外增加 temby 站点):
 # [site]
 # checkiner = ["+temby"]
+#
+# 案例 (自定义私密群组签到 / 群组发言, 支持 tg://openmessage?chat_id=3849837200 里的 chat_id):
+# [site]
+# checkiner = ["+templ_c<3849837200>"]
+#
+# [checkiner.'templ_c<3849837200>']
+# name = "公益plus群组签到"
+# bot_checkin_cmd = "/checkin@usernamebot"
+# bot_success_keywords = "🎉 签到成功！"
+# wait_response = false # 只发命令不等待回复; 如需识别成功关键词可设为 true 或删除本行
+#
+# 案例 (公开群组 username):
+# [site]
+# checkiner = ["+templ_c<group_username>"]
+#
+# [checkiner.'templ_c<group_username>']
+# name = "公开群组发言"
+# bot_checkin_cmd = "签到"
+# wait_response = false
 
 # 可以分别设置各个组件 (机器人签到 / 群组监控 / 自动水群) 的站点:
 # [site]
