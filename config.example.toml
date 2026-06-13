@@ -79,6 +79,7 @@ model = "gpt-4.1-mini"
 time_range = "<11:00AM,11:00PM>"
 
 # 各个站点签到将在开始后, 等待一定时间随机启动, 使各站点错开 (分钟):
+# 站点单独配置 random_start 时, 将覆盖该全局值.
 random_start = 60
 
 # 每个站点签到的最大超时时间 (秒):
@@ -180,6 +181,8 @@ concurrency = 1
 # bot_checkin_cmd = "/checkin@usernamebot"
 # bot_success_keywords = "🎉 签到成功！"
 # wait_response = false # 只发命令不等待回复; 如需识别成功关键词可设为 true 或删除本行
+# time_range = "8:00AM" # 可选: 该群组/机器人独立签到时间; 不设置则跟随全局 [checkiner].time_range
+# random_start = 10 # 可选: 该群组/机器人独立随机延迟; 不设置则跟随全局 [checkiner].random_start
 #
 # 案例 (公开群组 username):
 # [site]

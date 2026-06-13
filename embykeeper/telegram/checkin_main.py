@@ -87,13 +87,25 @@ class CheckinerManager:
         for key in keys_to_remove:
             del self._schedulers[key]
 
-    def _has_independent_time_range(self, site_name: str, config_to_use) -> bool:
-        """Check if a site has independent time_range configuration"""
+    def _has_independent_schedule(self, site_name: str, config_to_use) -> bool:
+        """Check if a site has independent scheduling configuration."""
         site_config = config_to_use.get_site_config(site_name)
-        return isinstance(site_config, dict) and "time_range" in site_config
+        return isinstance(site_config, dict) and (
+            "time_range" in site_config or "interval_days" in site_config
+        )
+
+    def _has_independent_time_range(self, site_name: str, config_to_use) -> bool:
+        """Backward-compatible wrapper for independent site scheduling checks."""
+        return self._has_independent_schedule(site_name, config_to_use)
+
+    def _get_site_random_start(self, site_config: dict, config_to_use) -> float:
+        """Return per-site random_start when configured, otherwise the global default."""
+        if isinstance(site_config, dict) and "random_start" in site_config:
+            return site_config.get("random_start") or 0
+        return config_to_use.random_start or 0
 
     def _schedule_independent_sites(self, account: TelegramAccount, config_to_use):
-        """Schedule sites with independent time_range configurations"""
+        """Schedule sites with independent scheduling configuration."""
         from .dynamic import get_cls, get_names, extract
 
         # Get checkin classes based on account config or global config
@@ -113,14 +125,15 @@ class CheckinerManager:
             else:
                 site_name = cls.__module__.rsplit(".", 1)[-1]
 
-            if self._has_independent_time_range(site_name, config_to_use):
+            if self._has_independent_schedule(site_name, config_to_use):
                 self._schedule_independent_site(account, site_name, config_to_use)
 
     def _schedule_independent_site(self, account: TelegramAccount, site_name: str, config_to_use):
-        """Schedule a site with independent time_range configuration"""
+        """Schedule a site with independent scheduling configuration."""
         site_config = config_to_use.get_site_config(site_name)
-        site_time_range = site_config.get("time_range")
+        site_time_range = site_config.get("time_range", config_to_use.time_range)
         site_interval_days = site_config.get("interval_days", config_to_use.interval_days)
+        site_random_start = self._get_site_random_start(site_config, config_to_use)
 
         phone_masked = TelegramAccount.get_phone_masked(account.phone)
 
@@ -137,7 +150,7 @@ class CheckinerManager:
             )
 
         def func(ctx: RunContext):
-            return asyncio.create_task(self._run_single_site(ctx, account, site_name))
+            return asyncio.create_task(self._run_single_site_with_random_start(ctx, account, site_name, site_random_start))
 
         scheduler = Scheduler.from_str(
             func=func,
@@ -254,6 +267,17 @@ class CheckinerManager:
                 logger.warning(f"安排 {site} 站点签到时间失败: {e}")
             show_exception(e, regular=False)
 
+    async def _run_single_site_with_random_start(
+        self, ctx: RunContext, account: TelegramAccount, site_name: str, random_start: float = 0
+    ):
+        if config.debug_cron:
+            random_start = 0.1
+        if random_start:
+            wait = random.uniform(0, random_start)
+            logger.bind(name=site_name).debug(f"随机启动等待: 将等待 {wait:.2f} 分钟以启动.")
+            await asyncio.sleep(wait * 60)
+        return await self._run_single_site(ctx, account, site_name)
+
     async def _run_single_site(self, ctx: RunContext, account: TelegramAccount, site_name: str):
         async with ClientsSession([account]) as clients:
             async for _, client in clients:
@@ -323,9 +347,9 @@ class CheckinerManager:
             else:
                 site_name = cls.__module__.rsplit(".", 1)[-1]
 
-            # Skip sites with independent time_range configurations
-            if self._has_independent_time_range(site_name, config_to_use):
-                log.debug(f"跳过站点 {site_name}, 该站点有独立的 time_range 配置")
+            # Skip sites with independent scheduling configuration
+            if self._has_independent_schedule(site_name, config_to_use):
+                log.debug(f"跳过站点 {site_name}, 该站点有独立的调度配置")
                 continue
 
             site_config = config_to_use.get_site_config(site_name)
@@ -371,7 +395,8 @@ class CheckinerManager:
                     c.log.warning(f"跳过 AI 签到: AI 连通性检查失败 ({ai_reason}).")
                     results.append((c, c.ctx.finish(RunStatus.IGNORE, f"AI 连通性检查失败: {ai_reason}")))
                     continue
-            wait = 0 if instant else random.uniform(0, config_to_use.random_start)
+            site_random_start = self._get_site_random_start(c.config, config_to_use)
+            wait = 0 if instant else random.uniform(0, site_random_start)
             task = self._task_main(c, sem, wait)
             tasks.append(task)
 
