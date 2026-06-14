@@ -1,5 +1,7 @@
+from datetime import datetime
 from types import SimpleNamespace
 
+from embykeeper.runinfo import RunStatus
 from embykeeper.telegram.checkin_main import CheckinerManager
 
 
@@ -44,3 +46,34 @@ def test_site_random_start_overrides_global_default():
     assert manager._get_site_random_start({"random_start": 3}, config) == 3
     assert manager._get_site_random_start({}, config) == 40
     assert manager._get_site_random_start({"random_start": 0}, config) == 0
+
+
+def test_single_site_success_summary_is_formatted_for_notification():
+    manager = CheckinerManager.__new__(CheckinerManager)
+    account = SimpleNamespace(phone="+447123456789")
+    checkiner = SimpleNamespace(name="HyVPS签到")
+    result = SimpleNamespace(status=RunStatus.SUCCESS, status_info="签到成功", next_time=None)
+
+    summary = manager._format_single_site_summary(account, checkiner, result)
+
+    assert "📋 单站点签到结果：" in summary
+    assert "• 账号：+447*****6789" in summary
+    assert "• 站点：HyVPS签到" in summary
+    assert "• 状态：✅ 成功" in summary
+    assert "• 说明：签到成功" in summary
+
+
+def test_single_site_reschedule_summary_includes_next_time():
+    manager = CheckinerManager.__new__(CheckinerManager)
+    account = SimpleNamespace(phone="+447123456789")
+    checkiner = SimpleNamespace(name="HyVPS签到")
+    result = SimpleNamespace(
+        status=RunStatus.RESCHEDULE,
+        status_info="等待下一次重试",
+        next_time=datetime(2026, 6, 15, 8, 0),
+    )
+
+    summary = manager._format_single_site_summary(account, checkiner, result)
+
+    assert "• 状态：⏳ 等待重试" in summary
+    assert "• 下次尝试：06-15 08:00 AM" in summary

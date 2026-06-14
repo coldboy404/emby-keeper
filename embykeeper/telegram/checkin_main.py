@@ -278,6 +278,37 @@ class CheckinerManager:
             await asyncio.sleep(wait * 60)
         return await self._run_single_site(ctx, account, site_name)
 
+    def _format_single_site_summary(self, account: TelegramAccount, checkiner: BaseBotCheckin, result: RunContext) -> str:
+        status_map = {
+            RunStatus.SUCCESS: "✅ 成功",
+            RunStatus.NONEED: "✅ 已签到跳过",
+            RunStatus.RESCHEDULE: "⏳ 等待重试",
+            RunStatus.IGNORE: "⏭️ 已跳过",
+            RunStatus.FAIL: "❌ 失败",
+            RunStatus.ERROR: "❌ 错误",
+        }
+        status = status_map.get(result.status, f"{result.status}")
+        lines = [
+            "📋 单站点签到结果：",
+            "",
+            f"• 账号：{TelegramAccount.get_phone_masked(account.phone)}",
+            f"• 站点：{checkiner.name}",
+            f"• 状态：{status}",
+        ]
+        if result.status_info:
+            lines.append(f"• 说明：{result.status_info}")
+        if result.status == RunStatus.RESCHEDULE and result.next_time:
+            lines.append(f"• 下次尝试：{result.next_time.strftime('%m-%d %H:%M %p')}")
+        return "\n".join(lines)
+
+    def _notify_single_site_result(self, account: TelegramAccount, checkiner: BaseBotCheckin, result: RunContext):
+        summary = self._format_single_site_summary(account, checkiner, result)
+        log = logger.bind(username=getattr(checkiner.client.me, "full_name", None), name=checkiner.name)
+        if result.status in (RunStatus.FAIL, RunStatus.ERROR):
+            log.bind(log=True).error(summary)
+        else:
+            log.bind(log=True).info(summary)
+
     async def _run_single_site(self, ctx: RunContext, account: TelegramAccount, site_name: str):
         async with ClientsSession([account]) as clients:
             async for _, client in clients:
@@ -314,6 +345,7 @@ class CheckinerManager:
                         self.schedule_site(ctx, c.ctx.next_time, account, site_name, reschedule=True)
                 else:
                     log.debug("站点重新签到失败.")
+                self._notify_single_site_result(account, c, result)
 
     async def _run_account(
         self, ctx: RunContext, account: TelegramAccount, client: Client, instant: bool = False
